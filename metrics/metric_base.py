@@ -115,6 +115,7 @@ class MetricBase:
     def _iterate_reals(self, minibatch_size):
         print(f'Calculating real image statistics for {self.name}...')
         dataset_obj = self._get_dataset_obj()
+        num_tot = 0
         while True:
             images = []
             labels = []
@@ -122,10 +123,13 @@ class MetricBase:
                 image, label = dataset_obj.get_minibatch_np(1)
                 if image is None:
                     break
+                num_tot += 1
                 images.append(image)
                 labels.append(label)
             num = len(images)
             if num == 0:
+                break
+            if num_tot>1020:
                 break
             images = np.concatenate(images + [images[-1]] * (minibatch_size - num), axis=0)
             labels = np.concatenate(labels + [labels[-1]] * (minibatch_size - num), axis=0)

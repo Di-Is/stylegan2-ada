@@ -13,6 +13,7 @@ import numpy as np
 import tensorflow.compat.v1 as tensorflow
 tf = tensorflow
 tf.disable_v2_behavior()
+import tensorflow_addons as tfa
 import scipy.signal
 import dnnlib
 import dnnlib.tflib as tflib
@@ -431,7 +432,7 @@ def augment_pipeline(
         # Execute transformation.
         transforms = tf.reshape(G_inv, [-1, 9])[:, :8]
         shape = [(height + Hz_pad * 2) * 2, (width + Hz_pad * 2) * 2]
-        images = tf.contrib.image.transform(images=images, transforms=transforms, output_shape=shape, interpolation='BILINEAR')
+        images = tfa.image.transform(images=images, transforms=transforms, output_shape=shape, interpolation='BILINEAR')
 
         # Downsample and crop.
         images = tf.nn.depthwise_conv2d(input=images, filter=Hz[np.newaxis,:], strides=[1,1,1,1], padding='SAME', data_format='NHWC')

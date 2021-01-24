@@ -200,11 +200,9 @@ class Optimizer:
         # Sum gradients across devices.
         if len(self._devices) > 1:
             with tfutil.absolute_name_scope(self.scope + "/Broadcast"), tf.device(None):
-                if platform.system() == "Windows":    # Windows => NCCL ops are not available.
+                if tf.VERSION.startswith("1.15."):
                     self._broadcast_fallback()
-                elif tf.VERSION.startswith("1.15."):  # TF 1.15 => NCCL ops are broken: https://github.com/tensorflow/tensorflow/issues/41539
-                    self._broadcast_fallback()
-                else:                                 # Otherwise => NCCL ops are safe to use.
+                else:
                     self._broadcast_nccl()
 
         # Apply updates separately on each device.

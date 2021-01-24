@@ -13,7 +13,9 @@ import pickle
 import time
 import PIL.Image
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tensorflow
+tf = tensorflow
+tf.disable_v2_behavior()
 import dnnlib
 import dnnlib.tflib as tflib
 from dnnlib.tflib.autosummary import autosummary
@@ -107,6 +109,12 @@ def training_loop(
     abort_fn                = None,     # Callback function for determining whether to abort training.
     progress_fn             = None,     # Callback function for updating training progress.
 ):
+
+    image_snapshot_ticks = 5
+    network_snapshot_ticks = 5
+
+    print(minibatch_size, num_gpus, minibatch_gpu)
+    #minibatch_size = 16
     assert minibatch_size % (num_gpus * minibatch_gpu) == 0
     start_time = time.time()
 
@@ -206,7 +214,7 @@ def training_loop(
     Gs_epochs_op = Gs.update_epochs(Gs_epochs)
     tflib.init_uninitialized_vars()
     with tf.device('/gpu:0'):
-        peak_gpu_mem_op = tf.contrib.memory_stats.MaxBytesInUse()
+        peak_gpu_mem_op = 2.4268e+10 * 1.7 #tf.contrib.memory_stats.MaxBytesInUse()
 
     print('Initializing metrics...')
     summary_log = tf.summary.FileWriter(run_dir)
@@ -294,7 +302,7 @@ def training_loop(
                 f"sec/tick {autosummary('Timing/sec_per_tick', tick_time):<7.1f}",
                 f"sec/kimg {autosummary('Timing/sec_per_kimg', tick_time / tick_kimg):<7.2f}",
                 f"maintenance {autosummary('Timing/maintenance_sec', maintenance_time):<6.1f}",
-                f"gpumem {autosummary('Resources/peak_gpu_mem_gb', peak_gpu_mem_op.eval() / 2**30):<5.1f}",
+                f"gpumem {autosummary('Resources/peak_gpu_mem_gb', peak_gpu_mem_op / 2**30):<5.1f}",
                 f"augment {autosummary('Progress/augment', aug.strength if aug is not None else 0):.3f}",
             ]))
             autosummary('Timing/total_hours', total_time / (60.0 * 60.0))
