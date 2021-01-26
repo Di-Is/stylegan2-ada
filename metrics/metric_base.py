@@ -129,7 +129,7 @@ class MetricBase:
             num = len(images)
             if num == 0:
                 break
-            if num_tot>1020:
+            if num_tot>13576:
                 break
             images = np.concatenate(images + [images[-1]] * (minibatch_size - num), axis=0)
             labels = np.concatenate(labels + [labels[-1]] * (minibatch_size - num), axis=0)

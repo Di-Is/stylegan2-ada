@@ -71,7 +71,6 @@ def setup_training_options(
     args.D_opt_args = dnnlib.EasyDict(beta1=0.0, beta2=0.99)
     args.loss_args = dnnlib.EasyDict(func_name='training.loss.stylegan2')
     args.augment_args = dnnlib.EasyDict(class_name='training.augment.AdaptiveAugment')
-
     # ---------------------------
     # General options: gpus, snap
     # ---------------------------
@@ -177,7 +176,8 @@ def setup_training_options(
         '11gb-gpu-complex':     dict(ref_gpus=1,  kimg=25000,  mb=4, mbstd=4,  fmaps=1,   lrate=0.002,  gamma=10,   ema=10,  ramp=None, map=8), # uses mixed-precision, 11GB GPU
         '24gb-gpu':     dict(ref_gpus=1,  kimg=25000,  mb=8, mbstd=8,  fmaps=1,   lrate=0.002,  gamma=10,   ema=10,  ramp=None, map=8), # uses mixed-precision, 24GB GPU
         '24gb-gpu-complex':     dict(ref_gpus=1,  kimg=25000,  mb=8, mbstd=8,  fmaps=1,   lrate=0.002,  gamma=10,   ema=10,  ramp=None, map=8), # uses mixed-precision, 24GB GPU
-        '24gb-2gpu-complex':     dict(ref_gpus=2,  kimg=25000,  mb=24, mbstd=12,  fmaps=1,   lrate=0.002,  gamma=10,   ema=10,  ramp=None, map=8), # uses mixed-precision, 24GB GPU
+        '24gb-2gpu':     dict(ref_gpus=2,  kimg=25000,  mb=16, mbstd=8,  fmaps=1,   lrate=0.002,  gamma=13.1072,   ema=5,  ramp=0.05, map=2), # uses mixed-precision, 24GB GPU
+        '24gb-8gpu':     dict(ref_gpus=8,  kimg=25000,  mb=64, mbstd=8,  fmaps=1,   lrate=0.002,  gamma=3.2768,   ema=20,  ramp=0.05, map=2),
         '48gb-gpu':     dict(ref_gpus=1,  kimg=25000,  mb=16, mbstd=16,  fmaps=1,   lrate=0.002,  gamma=10,   ema=10,  ramp=None, map=8), # uses mixed-precision, 48GB GPU
         'stylegan2':     dict(ref_gpus=8,  kimg=25000,  mb=32, mbstd=4,  fmaps=1,   lrate=0.002,  gamma=10,   ema=10,  ramp=None, map=8), # uses mixed-precision, unlike original StyleGAN2
         'paper256':      dict(ref_gpus=8,  kimg=25000,  mb=64, mbstd=8,  fmaps=0.5, lrate=0.0025, gamma=1,    ema=20,  ramp=None, map=8),
@@ -186,7 +186,6 @@ def setup_training_options(
         'cifar':         dict(ref_gpus=2,  kimg=100000, mb=64, mbstd=32, fmaps=0.5, lrate=0.0025, gamma=0.01, ema=500, ramp=0.05, map=2),
         'cifarbaseline': dict(ref_gpus=2,  kimg=100000, mb=64, mbstd=32, fmaps=0.5, lrate=0.0025, gamma=0.01, ema=500, ramp=0.05, map=8),
     }
-
     assert cfg in cfg_specs
     spec = dnnlib.EasyDict(cfg_specs[cfg])
     if cfg == 'auto':
@@ -213,6 +212,7 @@ def setup_training_options(
     args.G_args.num_fp16_res = args.D_args.num_fp16_res = 4 # enable mixed-precision training
     args.G_args.conv_clamp = args.D_args.conv_clamp = 256 # clamp activations to avoid float16 overflow
 
+
     if cfg == 'aydao':
         # disable path length and style mixing regularization
         args.loss_args.pl_weight = 0
@@ -232,19 +232,16 @@ def setup_training_options(
         # reduce in-memory size, you need a BIG GPU for this model
         args.minibatch_gpu = 4 # probably will need to set this pretty low with such a large G, higher values work better for top-k training though
         args.G_args.num_fp16_res = 6 # making more layers fp16 can help as well
-
     if cfg == 'cifar' or cfg.split('-')[-1] == 'complex':
-        args.loss_args.pl_weight = 0 # disable path length regularization
+        args.loss_args.pl_weight = 2 # disable path length regularization
         args.G_args.style_mixing_prob = None # disable style mixing
         args.D_args.architecture = 'orig' # disable residual skip connections
-
     if gamma is not None:
         assert isinstance(gamma, float)
         if not gamma >= 0:
             raise UserError('--gamma must be non-negative')
         desc += f'-gamma{gamma:g}'
         args.loss_args.r1_gamma = gamma
-
     if kimg is not None:
         assert isinstance(kimg, int)
         if not kimg >= 1:
@@ -254,14 +251,13 @@ def setup_training_options(
 
     # ---------------------------------------------------
     # Discriminator augmentation: aug, p, target, augpipe
-    # ---------------------------------------------------
+    # --------------------------------------------------- 
 
     if aug is None:
         aug = 'ada'
     else:
         assert isinstance(aug, str)
         desc += f'-{aug}'
-
     if aug == 'ada':
         args.augment_args.tune_heuristic = 'rt'
         args.augment_args.tune_target = 0.6
@@ -316,12 +312,12 @@ def setup_training_options(
         'noise':    dict(noise=1),
         'cutout':   dict(cutout=1),
         'bg':       dict(xflip=1, rotate90=1, xint=1, scale=1, rotate=1, aniso=1, xfrac=1),
-        'bgc':      dict(xflip=1, rotate90=1, xint=1, scale=1, rotate=1, aniso=1, xfrac=1, brightness=1, contrast=1, lumaflip=1, hue=1, saturation=1),
+        'bgc':      dict(rotate90=1, xint=1, scale=1, rotate=1, aniso=1, xfrac=1),
         'bgcf':     dict(xflip=1, rotate90=1, xint=1, scale=1, rotate=1, aniso=1, xfrac=1, brightness=1, contrast=1, lumaflip=1, hue=1, saturation=1, imgfilter=1),
         'bgcfn':    dict(xflip=1, rotate90=1, xint=1, scale=1, rotate=1, aniso=1, xfrac=1, brightness=1, contrast=1, lumaflip=1, hue=1, saturation=1, imgfilter=1, noise=1),
         'bgcfnc':   dict(xflip=1, rotate90=1, xint=1, scale=1, rotate=1, aniso=1, xfrac=1, brightness=1, contrast=1, lumaflip=1, hue=1, saturation=1, imgfilter=1, noise=1, cutout=1),
     }
-
+    
     assert augpipe in augpipe_specs
     if aug != 'noaug':
         args.augment_args.apply_func = 'training.augment.augment_pipeline'
@@ -330,7 +326,6 @@ def setup_training_options(
     # ---------------------------------
     # Comparison methods: cmethod, dcap
     # ---------------------------------
-
     assert cmethod is None or isinstance(cmethod, str)
     if cmethod is None:
         cmethod = 'nocmethod'
@@ -412,7 +407,6 @@ def setup_training_options(
     # ----------------------------------
     # Transfer learning: resume, freezed
     # ----------------------------------
-
     resume_specs = {
         'ffhq256':      'https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada/pretrained/transfer-learning-source-nets/ffhq-res256-mirror-paper256-noaug.pkl',
         'ffhq512':      'https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada/pretrained/transfer-learning-source-nets/ffhq-res512-mirror-stylegan2-noaug.pkl',
@@ -449,7 +443,6 @@ def setup_training_options(
             raise UserError('--freezed must be non-negative')
         desc += f'-freezed{freezed:d}'
         args.D_args.freeze_layers = freezed
-
     return desc, args
 
 #----------------------------------------------------------------------------
@@ -582,7 +575,7 @@ def main():
     group.add_argument('--metricdata', help='Dataset to evaluate metrics against (optional)', metavar='PATH')
 
     group = parser.add_argument_group('base config')
-    group.add_argument('--cfg',   help='Base config (default: auto)', choices=['auto', '11gb-gpu','11gb-gpu-complex', '24gb-gpu','24gb-gpu-complex','24gb-2gpu-complex' , '48gb-gpu', 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar', 'cifarbaseline', 'aydao'])
+    group.add_argument('--cfg',   help='Base config (default: auto)', choices=['auto', '11gb-gpu','11gb-gpu-complex', '24gb-gpu','24gb-gpu-complex','24gb-2gpu','24gb-2gpu-complex' , '24gb-8gpu','48gb-gpu', 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar', 'cifarbaseline', 'aydao'])
 
     group.add_argument('--gamma', help='Override R1 gamma', type=float, metavar='FLOAT')
     group.add_argument('--kimg',  help='Override training duration', type=int, metavar='INT')

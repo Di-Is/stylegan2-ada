@@ -22,6 +22,8 @@ from dnnlib.tflib.autosummary import autosummary
 
 from training import dataset
 
+from tqdm import tqdm
+
 #----------------------------------------------------------------------------
 # Select size and contents of the image snapshot grids that are exported
 # periodically during training.
@@ -110,8 +112,8 @@ def training_loop(
     progress_fn             = None,     # Callback function for updating training progress.
 ):
 
-    image_snapshot_ticks = 5
-    network_snapshot_ticks = 5
+    image_snapshot_ticks = 1
+    network_snapshot_ticks = 1
 
     print(minibatch_size, num_gpus, minibatch_gpu)
     #minibatch_size = 16
@@ -201,20 +203,29 @@ def training_loop(
                 if terms.D_reg is not None: terms.D_loss += terms.D_reg
             G_opt.register_gradients(tf.reduce_mean(terms.G_loss), G_gpu.trainables)
             D_opt.register_gradients(tf.reduce_mean(terms.D_loss), D_gpu.trainables)
-
     print('Finalizing training ops...')
     data_fetch_op = tf.group(*data_fetch_ops)
+    print('data_fetch_op')
     G_train_op = G_opt.apply_updates()
+    print('G_train_op')
     D_train_op = D_opt.apply_updates()
+    print('D_train_op')
     G_reg_op = G_reg_opt.apply_updates(allow_no_op=True)
+    print('G_reg_op')
     D_reg_op = D_reg_opt.apply_updates(allow_no_op=True)
+    print('D_reg_op')
     Gs_beta_in = tf.placeholder(tf.float32, name='Gs_beta_in', shape=[])
+    print('Gs_beta_in')
     Gs_update_op = Gs.setup_as_moving_average_of(G, beta=Gs_beta_in)
+    print('Gs_update_op')
     Gs_epochs = tf.placeholder(tf.float32, name='Gs_epochs', shape=[])
+    print('Gs_epochs')
     Gs_epochs_op = Gs.update_epochs(Gs_epochs)
+    print('Gs_epochs_op')
     tflib.init_uninitialized_vars()
+    print('tflib.init_uninitialized_vars()')
     with tf.device('/gpu:0'):
-        peak_gpu_mem_op = 2.4268e+10 * 1.7 #tf.contrib.memory_stats.MaxBytesInUse()
+        peak_gpu_mem_op = 2.4268e+10 * 0.98 #tf.contrib.memory_stats.MaxBytesInUse()
 
     print('Initializing metrics...')
     summary_log = tf.summary.FileWriter(run_dir)
@@ -236,6 +247,9 @@ def training_loop(
     running_mb_counter = 0
 
     done = False
+
+    pbar = tqdm(total=int(total_kimg*1000))
+
     while not done:
 
         # Compute EMA decay parameter.
@@ -253,7 +267,8 @@ def training_loop(
             run_D_reg = (lazy_regularization and running_mb_counter % D_reg_interval == 0)
             cur_nimg += minibatch_size
             running_mb_counter += 1
-
+            
+            pbar.update(minibatch_size)
             # Fast path without gradient accumulation.
             if len(rounds) == 1:
                 tflib.run([G_train_op, data_fetch_op])

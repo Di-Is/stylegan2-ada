@@ -21,6 +21,8 @@ import dnnlib.tflib as tflib
 
 from metrics import metric_base
 
+from tqdm import tqdm
+
 #----------------------------------------------------------------------------
 
 class FID(metric_base.MetricBase):
@@ -79,9 +81,11 @@ class FID(metric_base.MetricBase):
 
         # Calculate statistics for fakes.
         feat_fake = []
-        for begin in range(0, self.num_fakes, minibatch_size):
-            self._report_progress(begin, self.num_fakes)
-            feat_fake += list(np.concatenate(tflib.run(result_expr), axis=0))
+        with tqdm(range(0, self.num_fakes, minibatch_size), leave=False) as pbar_fid:
+            pbar_fid.set_description('FID calc')
+            for begin in pbar_fid:
+                self._report_progress(begin, self.num_fakes)
+                feat_fake += list(np.concatenate(tflib.run(result_expr), axis=0))
         feat_fake = np.stack(feat_fake[:self.num_fakes])
         mu_fake = np.mean(feat_fake, axis=0)
         sigma_fake = np.cov(feat_fake, rowvar=False)
