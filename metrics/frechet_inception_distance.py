@@ -86,6 +86,7 @@ class FID(metric_base.MetricBase):
             for begin in pbar_fid:
                 self._report_progress(begin, self.num_fakes)
                 feat_fake += list(np.concatenate(tflib.run(result_expr), axis=0))
+
         feat_fake = np.stack(feat_fake[:self.num_fakes])
         mu_fake = np.mean(feat_fake, axis=0)
         sigma_fake = np.cov(feat_fake, rowvar=False)

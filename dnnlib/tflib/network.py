@@ -15,7 +15,9 @@ import uuid
 import sys
 import copy
 import numpy as np
-from .tfutil import tf
+import tensorflow.compat.v1 as tensorflow
+tf = tensorflow
+tf.disable_v2_behavior()
 
 from collections import OrderedDict
 from typing import Any, List, Tuple, Union, Callable
@@ -120,7 +122,6 @@ class Network:
         self._trainables            = None
         self._var_global_to_local   = None
         self._run_cache             = dict()
-        self.epochs = tf.Variable(0., dtype=tf.float32, name='epochs')
 
     def _init_graph(self) -> None:
         assert self._var_inits is not None
@@ -431,11 +432,6 @@ class Network:
         build_module_src = state["build_module_src"]
         build_func_name = state["build_func_name"]
 
-        # the workaround of tf1 to tf2 migration in network pickle file
-        #	replace 'import tensorflow as tf' in build_module_src
-        build_module_src =  build_module_src.replace('import tensorflow as tf', 'import tensorflow.compat.v1 as tf\ntf.disable_v2_behavior()')
-
-
         # Create temporary module from the imported source code.
         module_name = "_tflib_network_import_" + uuid.uuid4().hex
         module = types.ModuleType(module_name)
@@ -542,12 +538,6 @@ class Network:
                     new_value = tfutil.lerp(src_net._get_vars()[name], var, cur_beta)
                     ops.append(var.assign(new_value))
             return tf.group(*ops)
-
-    def update_epochs(self, epochs: TfExpressionEx = 0) -> tf.Operation:
-        """Construct a TensorFlow op that updates the epoch counter of this network."""
-        with tfutil.absolute_name_scope(self.scope + "/_Epochs"):
-            op = self.epochs.assign(epochs)
-            return op
 
     def run(self,
             *in_arrays: Tuple[Union[np.ndarray, None], ...],

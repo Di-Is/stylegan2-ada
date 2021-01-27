@@ -13,7 +13,9 @@ import numpy as np
 import tensorflow.compat.v1 as tensorflow
 tf = tensorflow
 tf.disable_v2_behavior()
+
 import tensorflow_addons as tfa
+
 import scipy.signal
 import dnnlib
 import dnnlib.tflib as tflib

@@ -10,7 +10,9 @@
 
 import os
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tensorflow
+tf = tensorflow
+tf.disable_v2_behavior()
 from .. import custom_ops
 
 def _get_plugin():

@@ -8,8 +8,11 @@
 
 """Helper wrapper for a Tensorflow optimizer."""
 
+import platform
 import numpy as np
-from .tfutil import tf
+import tensorflow.compat.v1 as tensorflow
+tf = tensorflow
+tf.disable_v2_behavior()
 
 from collections import OrderedDict
 from typing import List, Union
@@ -19,14 +22,6 @@ from . import tfutil
 from .. import util
 
 from .tfutil import TfExpression, TfExpressionEx
-
-# try:
-#     # TensorFlow 1.13
-#     from tensorflow.python.ops import nccl_ops
-# except:
-#     # Older TensorFlow versions
-#     # import tensorflow.contrib.nccl as nccl_ops
-
 
 _collective_ops_warning_printed = False
 _collective_ops_group_key       = 831766147
@@ -46,7 +41,7 @@ class Optimizer:
 
     def __init__(self,
         name:                   str             = "Train",                  # Name string that will appear in TensorFlow graph.
-        tf_optimizer:           str             = "tf.compat.v1.train.AdamOptimizer", # Underlying optimizer class.
+        tf_optimizer:           str             = "tf.train.AdamOptimizer", # Underlying optimizer class.
         learning_rate:          TfExpressionEx  = 0.001,                    # Learning rate. Can vary over time.
         minibatch_multiplier:   TfExpressionEx  = None,                     # Treat N consecutive minibatches as one by accumulating gradients.
         share:                  "Optimizer"     = None,                     # Share internal state with a previously created optimizer?
@@ -144,7 +139,7 @@ class Optimizer:
             self._report_mem_usage = False
             try:
                 with tf.name_scope(self.id + '_mem'), tf.device(device.name), tf.control_dependencies([loss]):
-                    deps.append(autosummary.autosummary(self.id + "/mem_usage_gb", tf.contrib.memory_stats.BytesInUse() / 2**30))
+                    deps.append(autosummary.autosummary(self.id + "/mem_usage_gb", 2.4265e+10 * 0.98 / 2**30))
             except tf.errors.NotFoundError:
                 pass
 
@@ -200,9 +195,11 @@ class Optimizer:
         # Sum gradients across devices.
         if len(self._devices) > 1:
             with tfutil.absolute_name_scope(self.scope + "/Broadcast"), tf.device(None):
-                if tf.VERSION.startswith("1.15."):
+                if platform.system() == "Windows":    # Windows => NCCL ops are not available.
                     self._broadcast_fallback()
-                else:
+                elif tf.VERSION.startswith("1.15."):  # TF 1.15 => NCCL ops are broken: https://github.com/tensorflow/tensorflow/issues/41539
+                    self._broadcast_fallback()
+                else:                                 # Otherwise => NCCL ops are safe to use.
                     self._broadcast_nccl()
 
         # Apply updates separately on each device.
@@ -328,50 +325,50 @@ class Optimizer:
         _collective_ops_instance_key += 1
 
 
-# class SimpleAdam: needs upgrading
-#     """Simplified version of tf.train.AdamOptimizer that behaves identically when used with dnnlib.tflib.Optimizer."""
+class SimpleAdam:
+    """Simplified version of tf.train.AdamOptimizer that behaves identically when used with dnnlib.tflib.Optimizer."""
 
-#     def __init__(self, name="Adam", learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
-#         self.name = name
-#         self.learning_rate = learning_rate
-#         self.beta1 = beta1
-#         self.beta2 = beta2
-#         self.epsilon = epsilon
-#         self.all_state_vars = []
+    def __init__(self, name="Adam", learning_rate=0.001, beta1=0.9, beta2=0.999, epsilon=1e-8):
+        self.name = name
+        self.learning_rate = learning_rate
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+        self.all_state_vars = []
 
-#     def variables(self):
-#         return self.all_state_vars
+    def variables(self):
+        return self.all_state_vars
 
-#     def compute_gradients(self, loss, var_list, gate_gradients=tf.train.Optimizer.GATE_NONE):
-#         assert gate_gradients == tf.train.Optimizer.GATE_NONE
-#         return list(zip(tf.gradients(loss, var_list), var_list))
+    def compute_gradients(self, loss, var_list, gate_gradients=tf.train.Optimizer.GATE_NONE):
+        assert gate_gradients == tf.train.Optimizer.GATE_NONE
+        return list(zip(tf.gradients(loss, var_list), var_list))
 
-#     def apply_gradients(self, grads_and_vars):
-#         with tf.name_scope(self.name):
-#             state_vars = []
-#             update_ops = []
+    def apply_gradients(self, grads_and_vars):
+        with tf.name_scope(self.name):
+            state_vars = []
+            update_ops = []
 
-#             # Adjust learning rate to deal with startup bias.
-#             with tf.control_dependencies(None):
-#                 b1pow_var = tf.Variable(dtype=tf.float32, initial_value=1, trainable=False)
-#                 b2pow_var = tf.Variable(dtype=tf.float32, initial_value=1, trainable=False)
-#                 state_vars += [b1pow_var, b2pow_var]
-#             b1pow_new = b1pow_var * self.beta1
-#             b2pow_new = b2pow_var * self.beta2
-#             update_ops += [tf.assign(b1pow_var, b1pow_new), tf.assign(b2pow_var, b2pow_new)]
-#             lr_new = self.learning_rate * tf.sqrt(1 - b2pow_new) / (1 - b1pow_new)
+            # Adjust learning rate to deal with startup bias.
+            with tf.control_dependencies(None):
+                b1pow_var = tf.Variable(dtype=tf.float32, initial_value=1, trainable=False)
+                b2pow_var = tf.Variable(dtype=tf.float32, initial_value=1, trainable=False)
+                state_vars += [b1pow_var, b2pow_var]
+            b1pow_new = b1pow_var * self.beta1
+            b2pow_new = b2pow_var * self.beta2
+            update_ops += [tf.assign(b1pow_var, b1pow_new), tf.assign(b2pow_var, b2pow_new)]
+            lr_new = self.learning_rate * tf.sqrt(1 - b2pow_new) / (1 - b1pow_new)
 
-#             # Construct ops to update each variable.
-#             for grad, var in grads_and_vars:
-#                 with tf.control_dependencies(None):
-#                     m_var = tf.Variable(dtype=tf.float32, initial_value=tf.zeros_like(var), trainable=False)
-#                     v_var = tf.Variable(dtype=tf.float32, initial_value=tf.zeros_like(var), trainable=False)
-#                     state_vars += [m_var, v_var]
-#                 m_new = self.beta1 * m_var + (1 - self.beta1) * grad
-#                 v_new = self.beta2 * v_var + (1 - self.beta2) * tf.square(grad)
-#                 var_delta = lr_new * m_new / (tf.sqrt(v_new) + self.epsilon)
-#                 update_ops += [tf.assign(m_var, m_new), tf.assign(v_var, v_new), tf.assign_sub(var, var_delta)]
+            # Construct ops to update each variable.
+            for grad, var in grads_and_vars:
+                with tf.control_dependencies(None):
+                    m_var = tf.Variable(dtype=tf.float32, initial_value=tf.zeros_like(var), trainable=False)
+                    v_var = tf.Variable(dtype=tf.float32, initial_value=tf.zeros_like(var), trainable=False)
+                    state_vars += [m_var, v_var]
+                m_new = self.beta1 * m_var + (1 - self.beta1) * grad
+                v_new = self.beta2 * v_var + (1 - self.beta2) * tf.square(grad)
+                var_delta = lr_new * m_new / (tf.sqrt(v_new) + self.epsilon)
+                update_ops += [tf.assign(m_var, m_new), tf.assign(v_var, v_new), tf.assign_sub(var, var_delta)]
 
-#             # Group everything together.
-#             self.all_state_vars += state_vars
-#             return tf.group(*update_ops)
+            # Group everything together.
+            self.all_state_vars += state_vars
+            return tf.group(*update_ops)

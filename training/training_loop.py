@@ -21,8 +21,10 @@ import dnnlib.tflib as tflib
 from dnnlib.tflib.autosummary import autosummary
 
 from training import dataset
+from training import misc
 
 from tqdm import tqdm
+from collections import OrderedDict
 
 #----------------------------------------------------------------------------
 # Select size and contents of the image snapshot grids that are exported
@@ -103,36 +105,46 @@ def training_loop(
     lazy_regularization     = True,     # Perform regularization as a separate training step?
     G_reg_interval          = 4,        # How often the perform regularization for G? Ignored if lazy_regularization=False.
     D_reg_interval          = 16,       # How often the perform regularization for D? Ignored if lazy_regularization=False.
-    total_kimg              = 25000,    # Total length of the training, measured in thousands of real images.
-    kimg_per_tick           = 4,        # Progress snapshot interval.
-    image_snapshot_ticks    = 50,       # How often to save image snapshots? None = only save 'reals.png' and 'fakes-init.png'.
-    network_snapshot_ticks  = 50,       # How often to save network snapshots? None = only save 'networks-final.pkl'.
+    total_kimg              = 10000,    # Total length of the training, measured in thousands of real images.
+    kimg_per_tick           = 1,        # Progress snapshot interval.
+    image_snapshot_ticks    = 1,       # How often to save image snapshots? None = only save 'reals.png' and 'fakes-init.png'.
+    network_snapshot_ticks  = 1,       # How often to save network snapshots? None = only save 'networks-final.pkl'.
     resume_pkl              = None,     # Network pickle to resume training from.
     abort_fn                = None,     # Callback function for determining whether to abort training.
     progress_fn             = None,     # Callback function for updating training progress.
 ):
+    kimg_per_tick = 4
+    network_snapshot_ticks = 15
+    image_snapshot_ticks = 15
 
-    image_snapshot_ticks = 1
-    network_snapshot_ticks = 1
-
-    print(minibatch_size, num_gpus, minibatch_gpu)
-    #minibatch_size = 16
     assert minibatch_size % (num_gpus * minibatch_gpu) == 0
     start_time = time.time()
-
-    print('Loading training set...')
+    tqdm.write('Loading training set...')
     training_set = dataset.load_dataset(**train_dataset_args)
     print('Image shape:', np.int32(training_set.shape).tolist())
     print('Label shape:', [training_set.label_size])
     print()
 
-    print('Constructing networks...')
+    tqdm.write('Constructing networks...')
     with tf.device('/gpu:0'):
         G = tflib.Network('G', num_channels=training_set.shape[0], resolution=training_set.shape[1], label_size=training_set.label_size, **G_args)
         D = tflib.Network('D', num_channels=training_set.shape[0], resolution=training_set.shape[1], label_size=training_set.label_size, **D_args)
         Gs = G.clone('Gs')
+
+        if resume_pkl == 'latest':
+            out_dir = misc.get_parent_dir(run_dir)
+            resume_pkl = misc.locate_latest_pkl(out_dir)
+
+        resume_kimg = misc.parse_kimg_from_network_name(resume_pkl)
+        resume_aug_strength = misc.load_augment_strength(resume_pkl)
+
+        if resume_kimg > 0:
+            tqdm.write(f'Resuming from kimg = {resume_kimg}')
+        if resume_aug_strength > 0:
+            tqdm.write(f'Resuming from augmentation strength = {resume_aug_strength}')
+
         if resume_pkl is not None:
-            print(f'Resuming from "{resume_pkl}"')
+            tqdm.write(f'Resuming from "{resume_pkl}"')
             with dnnlib.util.open_url(resume_pkl) as f:
                 rG, rD, rGs = pickle.load(f)
             G.copy_vars_from(rG)
@@ -141,14 +153,14 @@ def training_loop(
     G.print_layers()
     D.print_layers()
 
-    print('Exporting sample images...')
+    tqdm.write('Exporting sample images...')
     grid_size, grid_reals, grid_labels = setup_snapshot_image_grid(training_set)
     save_image_grid(grid_reals, os.path.join(run_dir, 'reals.jpg'), drange=[0,255], grid_size=grid_size)
     grid_latents = np.random.randn(np.prod(grid_size), *G.input_shape[1:])
     grid_fakes = Gs.run(grid_latents, grid_labels, is_validation=True, minibatch_size=minibatch_gpu)
     save_image_grid(grid_fakes, os.path.join(run_dir, 'fakes_init.jpg'), drange=[-1,1], grid_size=grid_size)
 
-    print(f'Replicating networks across {num_gpus} GPUs...')
+    tqdm.write(f'Replicating networks across {num_gpus} GPUs...')
     G_gpus = [G]
     D_gpus = [D]
     for gpu in range(1, num_gpus):
@@ -156,13 +168,14 @@ def training_loop(
             G_gpus.append(G.clone(f'{G.name}_gpu{gpu}'))
             D_gpus.append(D.clone(f'{D.name}_gpu{gpu}'))
 
-    print('Initializing augmentations...')
+    tqdm.write('Initializing augmentations...')
     aug = None
     if augment_args.get('class_name', None) is not None:
         aug = dnnlib.util.construct_class_by_name(**augment_args)
         aug.init_validation_set(D_gpus=D_gpus, training_set=training_set)
+        aug.strength = resume_aug_strength
 
-    print('Setting up optimizers...')
+    tqdm.write('Setting up optimizers...')
     G_opt_args = dict(G_opt_args)
     D_opt_args = dict(D_opt_args)
     for args, reg_interval in [(G_opt_args, G_reg_interval), (D_opt_args, D_reg_interval)]:
@@ -177,7 +190,7 @@ def training_loop(
     G_reg_opt = tflib.Optimizer(name='RegG', share=G_opt, **G_opt_args)
     D_reg_opt = tflib.Optimizer(name='RegD', share=D_opt, **D_opt_args)
 
-    print('Constructing training graph...')
+    tqdm.write('Constructing training graph...')
     data_fetch_ops = []
     training_set.configure(minibatch_gpu)
     for gpu, (G_gpu, D_gpu) in enumerate(zip(G_gpus, D_gpus)):
@@ -203,31 +216,20 @@ def training_loop(
                 if terms.D_reg is not None: terms.D_loss += terms.D_reg
             G_opt.register_gradients(tf.reduce_mean(terms.G_loss), G_gpu.trainables)
             D_opt.register_gradients(tf.reduce_mean(terms.D_loss), D_gpu.trainables)
-    print('Finalizing training ops...')
-    data_fetch_op = tf.group(*data_fetch_ops)
-    print('data_fetch_op')
-    G_train_op = G_opt.apply_updates()
-    print('G_train_op')
-    D_train_op = D_opt.apply_updates()
-    print('D_train_op')
-    G_reg_op = G_reg_opt.apply_updates(allow_no_op=True)
-    print('G_reg_op')
-    D_reg_op = D_reg_opt.apply_updates(allow_no_op=True)
-    print('D_reg_op')
-    Gs_beta_in = tf.placeholder(tf.float32, name='Gs_beta_in', shape=[])
-    print('Gs_beta_in')
-    Gs_update_op = Gs.setup_as_moving_average_of(G, beta=Gs_beta_in)
-    print('Gs_update_op')
-    Gs_epochs = tf.placeholder(tf.float32, name='Gs_epochs', shape=[])
-    print('Gs_epochs')
-    Gs_epochs_op = Gs.update_epochs(Gs_epochs)
-    print('Gs_epochs_op')
-    tflib.init_uninitialized_vars()
-    print('tflib.init_uninitialized_vars()')
-    with tf.device('/gpu:0'):
-        peak_gpu_mem_op = 2.4268e+10 * 0.98 #tf.contrib.memory_stats.MaxBytesInUse()
 
-    print('Initializing metrics...')
+    tqdm.write('Finalizing training ops...')
+    data_fetch_op = tf.group(*data_fetch_ops)
+    G_train_op = G_opt.apply_updates()
+    D_train_op = D_opt.apply_updates()
+    G_reg_op = G_reg_opt.apply_updates(allow_no_op=True)
+    D_reg_op = D_reg_opt.apply_updates(allow_no_op=True)
+    Gs_beta_in = tf.placeholder(tf.float32, name='Gs_beta_in', shape=[])
+    Gs_update_op = Gs.setup_as_moving_average_of(G, beta=Gs_beta_in)
+    tflib.init_uninitialized_vars()
+    with tf.device('/gpu:0'):
+        peak_gpu_mem_op = 2.4265e+10 * 0.98
+
+    tqdm.write('Initializing metrics...')
     summary_log = tf.summary.FileWriter(run_dir)
     metrics = []
     for args in metric_arg_list:
@@ -235,20 +237,26 @@ def training_loop(
         metric.configure(dataset_args=metric_dataset_args, run_dir=run_dir)
         metrics.append(metric)
 
-    print(f'Training for {total_kimg} kimg...')
-    print()
+    tqdm.write(f'Training for {total_kimg} kimg...')
+    tqdm.write('')
     if progress_fn is not None:
-        progress_fn(0, total_kimg)
+        progress_fn(int(resume_kimg), total_kimg)
     tick_start_time = time.time()
     maintenance_time = tick_start_time - start_time
-    cur_nimg = 0
+    cur_nimg = int(resume_kimg * 1000)
     cur_tick = -1
     tick_start_nimg = cur_nimg
     running_mb_counter = 0
 
     done = False
 
-    pbar = tqdm(total=int(total_kimg*1000))
+    # progress bar setup.
+    pbar_all = tqdm(total=total_kimg*1e3)
+    pbar_all.set_description("Total progress")
+
+    # modified progress
+    if resume_kimg > 0:
+        pbar_all.update(resume_kimg*1000)
 
     while not done:
 
@@ -258,49 +266,50 @@ def training_loop(
             Gs_nimg = min(Gs_nimg, cur_nimg * G_smoothing_rampup)
         Gs_beta = 0.5 ** (minibatch_size / max(Gs_nimg, 1e-8))
 
-        epochs = float(100 * cur_nimg / (total_kimg * 1000)) # 100 total top k "epochs" in total_kimg
-
         # Run training ops.
-        for _repeat_idx in range(minibatch_repeats):
-            rounds = range(0, minibatch_size, minibatch_gpu * num_gpus)
-            run_G_reg = (lazy_regularization and running_mb_counter % G_reg_interval == 0)
-            run_D_reg = (lazy_regularization and running_mb_counter % D_reg_interval == 0)
-            cur_nimg += minibatch_size
-            running_mb_counter += 1
-            
-            pbar.update(minibatch_size)
-            # Fast path without gradient accumulation.
-            if len(rounds) == 1:
-                tflib.run([G_train_op, data_fetch_op])
-                if run_G_reg:
-                    tflib.run(G_reg_op)
-                tflib.run([D_train_op, Gs_update_op, Gs_epochs_op], {Gs_beta_in: Gs_beta, Gs_epochs: epochs})
-                if run_D_reg:
-                    tflib.run(D_reg_op)
+        with tqdm(range(minibatch_repeats), leave=False) as pbar_batch:
+            pbar_batch.set_description('batch calc')
+            for _repeat_idx in pbar_batch:
+                rounds = range(0, minibatch_size, minibatch_gpu * num_gpus)
+                run_G_reg = (lazy_regularization and running_mb_counter % G_reg_interval == 0)
+                run_D_reg = (lazy_regularization and running_mb_counter % D_reg_interval == 0)
+                cur_nimg += minibatch_size
+                running_mb_counter += 1
 
-            # Slow path with gradient accumulation.
-            else:
-                for _round in rounds:
-                    tflib.run(G_train_op)
+                # Fast path without gradient accumulation.
+                if len(rounds) == 1:
+                    tflib.run([G_train_op, data_fetch_op])
                     if run_G_reg:
                         tflib.run(G_reg_op)
-                tflib.run([Gs_update_op, Gs_epochs_op], {Gs_beta_in: Gs_beta, Gs_epochs: epochs})
-                for _round in rounds:
-                    tflib.run(data_fetch_op)
-                    tflib.run(D_train_op)
+                    tflib.run([D_train_op, Gs_update_op], {Gs_beta_in: Gs_beta})
                     if run_D_reg:
                         tflib.run(D_reg_op)
 
-            # Run validation.
-            if aug is not None:
-                aug.run_validation(minibatch_size=minibatch_size)
+                # Slow path with gradient accumulation.
+                else:
+                    for _round in rounds:
+                        tflib.run(G_train_op)
+                        if run_G_reg:
+                            tflib.run(G_reg_op)
+                    tflib.run(Gs_update_op, {Gs_beta_in: Gs_beta})
+                    for _round in rounds:
+                        tflib.run(data_fetch_op)
+                        tflib.run(D_train_op)
+                        if run_D_reg:
+                            tflib.run(D_reg_op)
+
+                # Run validation.
+                if aug is not None:
+                    aug.run_validation(minibatch_size=minibatch_size)
+
+                pbar_all.update(minibatch_size)
 
         # Tune augmentation parameters.
         if aug is not None:
             aug.tune(minibatch_size * minibatch_repeats)
-
         # Perform maintenance tasks once per tick.
         done = (cur_nimg >= total_kimg * 1000) or (abort_fn is not None and abort_fn())
+
         if done or cur_tick < 0 or cur_nimg >= tick_start_nimg + kimg_per_tick * 1000:
             cur_tick += 1
             tick_kimg = (cur_nimg - tick_start_nimg) / 1000.0
@@ -310,16 +319,18 @@ def training_loop(
             tick_time = tick_end_time - tick_start_time
 
             # Report progress.
-            print(' '.join([
+
+            tqdm.write(' '.join([
                 f"tick {autosummary('Progress/tick', cur_tick):<5d}",
                 f"kimg {autosummary('Progress/kimg', cur_nimg / 1000.0):<8.1f}",
                 f"time {dnnlib.util.format_time(autosummary('Timing/total_sec', total_time)):<12s}",
                 f"sec/tick {autosummary('Timing/sec_per_tick', tick_time):<7.1f}",
                 f"sec/kimg {autosummary('Timing/sec_per_kimg', tick_time / tick_kimg):<7.2f}",
                 f"maintenance {autosummary('Timing/maintenance_sec', maintenance_time):<6.1f}",
-                f"gpumem {autosummary('Resources/peak_gpu_mem_gb', peak_gpu_mem_op / 2**30):<5.1f}",
+                f"gpumem {autosummary('Resources/peak_gpu_mem_gb', peak_gpu_mem_op.eval() / 2**30):<5.1f}",
                 f"augment {autosummary('Progress/augment', aug.strength if aug is not None else 0):.3f}",
             ]))
+
             autosummary('Timing/total_hours', total_time / (60.0 * 60.0))
             autosummary('Timing/total_days', total_time / (24.0 * 60.0 * 60.0))
             if progress_fn is not None:
@@ -333,8 +344,10 @@ def training_loop(
                 pkl = os.path.join(run_dir, f'network-snapshot-{cur_nimg // 1000:06d}.pkl')
                 with open(pkl, 'wb') as f:
                     pickle.dump((G, D, Gs), f)
+                misc.save_augment_strength(pkl, aug.strength)
+
                 if len(metrics):
-                    print('Evaluating metrics...')
+                    #tqdm.write('Evaluating metrics...')
                     for metric in metrics:
                         metric.run(pkl, num_gpus=num_gpus)
 
@@ -345,7 +358,9 @@ def training_loop(
             tick_start_time = time.time()
             maintenance_time = tick_start_time - tick_end_time
 
-    print()
+
+
+    print('')
     print('Exiting...')
     summary_log.close()
     training_set.close()

@@ -10,11 +10,9 @@
 "Training Generative Adversarial Networks with Limited Data"."""
 
 import numpy as np
-
 import tensorflow.compat.v1 as tensorflow
 tf = tensorflow
 tf.disable_v2_behavior()
-
 import dnnlib
 import dnnlib.tflib as tflib
 from dnnlib.tflib.ops.upfirdn_2d import upsample_2d, downsample_2d, upsample_conv_2d, conv_downsample_2d

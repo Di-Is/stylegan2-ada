@@ -17,8 +17,6 @@ tf.disable_v2_behavior()
 # Silence deprecation warnings from TensorFlow 1.13 onwards
 import logging
 logging.getLogger('tensorflow').setLevel(logging.ERROR)
-# import tensorflow.contrib   # requires TensorFlow 1.x!
-# tf.contrib = tensorflow.contrib
 
 from typing import Any, Iterable, List, Union
 

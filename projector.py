@@ -15,7 +15,9 @@ import imageio
 
 import numpy as np
 import PIL.Image
-import tensorflow as tf
+import tensorflow.compat.v1 as tensorflow
+tf = tensorflow
+tf.disable_v2_behavior()
 import tqdm
 
 import dnnlib
