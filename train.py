@@ -21,6 +21,8 @@ from training import training_loop
 from training import dataset
 from metrics import metric_defaults
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
+
 #----------------------------------------------------------------------------
 
 class UserError(Exception):
@@ -79,7 +81,7 @@ def setup_training_options(
     if gpus is None:
         gpus = 1
     assert isinstance(gpus, int)
-    if not (gpus >= 1 and gpus & (gpus - 1) == 0):
+    if not gpus >= 1:
         raise UserError('--gpus must be a power of two')
     args.num_gpus = gpus
 
@@ -163,6 +165,7 @@ def setup_training_options(
 
     cfg_specs = {
         'auto':          dict(ref_gpus=-1, kimg=25000,  mb=-1, mbstd=-1, fmaps=-1,  lrate=-1,     gamma=-1,   ema=-1,  ramp=0.05, map=2), # populated dynamically based on 'gpus' and 'res'
+        '3090auto':      dict(ref_gpus=-1, kimg=25000,  mb=-1, mbstd=-1, fmaps=-1,  lrate=-1,     gamma=-1,   ema=-1,  ramp=0.05, map=2),
         'auto_no_ramp':  dict(ref_gpus=-1, kimg=25000,  mb=-1, mbstd=-1, fmaps=-1,  lrate=-1,     gamma=-1,   ema=-1,  ramp=None, map=2),
         'stylegan2':     dict(ref_gpus=8,  kimg=25000,  mb=32, mbstd=4,  fmaps=1,   lrate=0.002,  gamma=10,   ema=10,  ramp=None, map=8), # uses mixed-precision, unlike original StyleGAN2
         'paper256':      dict(ref_gpus=8,  kimg=25000,  mb=64, mbstd=8,  fmaps=0.5, lrate=0.0025, gamma=1,    ema=20,  ramp=None, map=8),
@@ -183,6 +186,20 @@ def setup_training_options(
         spec.lrate = 0.002 if res >= 1024 else 0.0025
         spec.gamma = 0.0002 * (res ** 2) / spec.mb # heuristic formula
         spec.ema = spec.mb * 10 / 32
+
+    if cfg.startswith('3090auto'):
+        desc += f'{gpus:d}'
+        spec.ref_gpus = gpus
+        spec.mb = 8 * gpus # keep gpu memory consumption at bay
+        spec.mbstd = min(spec.mb // gpus, 8) # other hyperparams behave more predictably if mbstd group size remains fixed
+        spec.fmaps = 1 if res >= 512 else 0.5
+        spec.lrate = 0.002 if res >= 1024 else 0.0025
+        spec.gamma = 0.0002 * (res ** 2) / spec.mb # heuristic formula
+        spec.ema = spec.mb * 10 / 32
+
+    from time import sleep
+    print(spec)
+    sleep(5)
 
     args.total_kimg = spec.kimg
     args.minibatch_size = spec.mb
@@ -280,7 +297,7 @@ def setup_training_options(
 
     assert augpipe is None or isinstance(augpipe, str)
     if augpipe is None:
-        augpipe = 'bgc'
+        augpipe = 'nebula_set'
     else:
         if aug == 'noaug':
             raise UserError('--augpipe cannot be specified with --aug=noaug')
@@ -298,6 +315,7 @@ def setup_training_options(
         'bgcf':     dict(xflip=1, rotate90=1, xint=1, scale=1, rotate=1, aniso=1, xfrac=1, brightness=1, contrast=1, lumaflip=1, hue=1, saturation=1, imgfilter=1),
         'bgcfn':    dict(xflip=1, rotate90=1, xint=1, scale=1, rotate=1, aniso=1, xfrac=1, brightness=1, contrast=1, lumaflip=1, hue=1, saturation=1, imgfilter=1, noise=1),
         'bgcfnc':   dict(xflip=1, rotate90=1, xint=1, scale=1, rotate=1, aniso=1, xfrac=1, brightness=1, contrast=1, lumaflip=1, hue=1, saturation=1, imgfilter=1, noise=1, cutout=1),
+        'nebula_set': dict(rotate90=1, xint=1, scale=1, rotate=1, aniso=1, xfrac=1, brightness=1, contrast=1, lumaflip=1, hue=1, saturation=1),
     }
 
     assert augpipe in augpipe_specs
@@ -546,7 +564,7 @@ def main():
     group.add_argument('--metricdata', help='Dataset to evaluate metrics against (optional)', metavar='PATH')
 
     group = parser.add_argument_group('base config')
-    group.add_argument('--cfg',   help='Base config (default: auto)', choices=['auto', 'auto_no_ramp', 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar', 'cifarbaseline'])
+    group.add_argument('--cfg',   help='Base config (default: auto)', choices=['auto', '3090auto', 'auto_no_ramp', 'stylegan2', 'paper256', 'paper512', 'paper1024', 'cifar', 'cifarbaseline'])
     group.add_argument('--cifar_tuning', help='Enforce CIFAR-specific architecture tuning (default: false)', type=_str_to_bool, metavar='BOOL')
     group.add_argument('--gamma', help='Override R1 gamma', type=float, metavar='FLOAT')
     group.add_argument('--kimg',  help='Override training duration', type=int, metavar='INT')

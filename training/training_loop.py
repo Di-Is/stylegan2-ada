@@ -112,8 +112,8 @@ def training_loop(
     progress_fn             = None,     # Callback function for updating training progress.
 ):
     kimg_per_tick = 4
-    network_snapshot_ticks = 15
-    image_snapshot_ticks = 15
+    network_snapshot_ticks = 12
+    image_snapshot_ticks = 12
 
     assert minibatch_size % (num_gpus * minibatch_gpu) == 0
     start_time = time.time()
@@ -249,7 +249,7 @@ def training_loop(
     done = False
 
     # progress bar setup.
-    pbar_all = tqdm(total=total_kimg*1e3)
+    pbar_all = tqdm(total=int(total_kimg*1e3))
     pbar_all.set_description("Total progress")
 
     # modified progress
