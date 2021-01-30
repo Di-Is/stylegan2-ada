@@ -10,9 +10,7 @@
 
 import platform
 import numpy as np
-import tensorflow.compat.v1 as tensorflow
-tf = tensorflow
-tf.disable_v2_behavior()
+import tensorflow as tf
 
 from collections import OrderedDict
 from typing import List, Union
@@ -139,7 +137,7 @@ class Optimizer:
             self._report_mem_usage = False
             try:
                 with tf.name_scope(self.id + '_mem'), tf.device(device.name), tf.control_dependencies([loss]):
-                    deps.append(autosummary.autosummary(self.id + "/mem_usage_gb", 2.4265e+10 * 0.98 / 2**30))
+                    deps.append(autosummary.autosummary(self.id + "/mem_usage_gb", tf.contrib.memory_stats.BytesInUse() / 2**30))
             except tf.errors.NotFoundError:
                 pass
 

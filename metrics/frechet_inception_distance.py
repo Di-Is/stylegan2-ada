@@ -13,9 +13,7 @@ import os
 import pickle
 import numpy as np
 import scipy
-import tensorflow.compat.v1 as tensorflow
-tf = tensorflow
-tf.disable_v2_behavior()
+import tensorflow as tf
 import dnnlib
 import dnnlib.tflib as tflib
 

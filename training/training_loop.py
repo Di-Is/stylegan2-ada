@@ -13,9 +13,7 @@ import pickle
 import time
 import PIL.Image
 import numpy as np
-import tensorflow.compat.v1 as tensorflow
-tf = tensorflow
-tf.disable_v2_behavior()
+import tensorflow as tf
 import dnnlib
 import dnnlib.tflib as tflib
 from dnnlib.tflib.autosummary import autosummary
@@ -227,7 +225,7 @@ def training_loop(
     Gs_update_op = Gs.setup_as_moving_average_of(G, beta=Gs_beta_in)
     tflib.init_uninitialized_vars()
     with tf.device('/gpu:0'):
-        peak_gpu_mem_op = 2.4265e+10 * 0.98
+        peak_gpu_mem_op = tf.contrib.memory_stats.MaxBytesInUse()
 
     tqdm.write('Initializing metrics...')
     summary_log = tf.summary.FileWriter(run_dir)

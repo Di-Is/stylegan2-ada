@@ -10,13 +10,13 @@
 
 import os
 import numpy as np
-import tensorflow.compat.v1 as tensorflow
-tf = tensorflow
-tf.disable_v2_behavior()
+import tensorflow as tf
 
 # Silence deprecation warnings from TensorFlow 1.13 onwards
 import logging
 logging.getLogger('tensorflow').setLevel(logging.ERROR)
+import tensorflow.contrib   # requires TensorFlow 1.x!
+tf.contrib = tensorflow.contrib
 
 from typing import Any, Iterable, List, Union
 

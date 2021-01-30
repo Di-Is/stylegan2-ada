@@ -10,9 +10,7 @@
 
 import os
 import numpy as np
-import tensorflow.compat.v1 as tensorflow
-tf = tensorflow
-tf.disable_v2_behavior()
+import tensorflow as tf
 from .. import custom_ops
 from ...util import EasyDict
 

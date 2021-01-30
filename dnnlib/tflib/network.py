@@ -15,9 +15,7 @@ import uuid
 import sys
 import copy
 import numpy as np
-import tensorflow.compat.v1 as tensorflow
-tf = tensorflow
-tf.disable_v2_behavior()
+import tensorflow as tf
 
 from collections import OrderedDict
 from typing import Any, List, Tuple, Union, Callable

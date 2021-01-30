@@ -16,9 +16,7 @@ import threading
 import six.moves.queue as Queue
 import traceback
 import numpy as np
-import tensorflow.compat.v1 as tensorflow
-tf = tensorflow
-tf.disable_v2_behavior()
+import tensorflow as tf
 import PIL.Image
 import dnnlib.tflib as tflib
 import scipy

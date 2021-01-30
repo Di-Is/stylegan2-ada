@@ -5,9 +5,7 @@ import PIL.Image
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import pretrained_networks
-import tensorflow.compat.v1 as tensorflow
-tf = tensorflow
-tf.disable_v2_behavior()
+import tensorflow as tf
 
 # Get tf noise variables, for the stochastic variation
 
