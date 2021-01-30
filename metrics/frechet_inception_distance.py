@@ -47,7 +47,7 @@ class FID(metric_base.MetricBase):
             mu_real = np.zeros(nfeat)
             sigma_real = np.zeros([nfeat, nfeat])
             num_real = 0
-            for images, _labels, num in self._iterate_reals(minibatch_size):
+            for images, _labels, num in tqdm(self._iterate_reals(minibatch_size)):
                 if self.max_reals is not None:
                     num = min(num, self.max_reals - num_real)
                 if images.shape[1] == 1:

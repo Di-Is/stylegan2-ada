@@ -112,8 +112,8 @@ def training_loop(
     progress_fn             = None,     # Callback function for updating training progress.
 ):
     kimg_per_tick = 4
-    network_snapshot_ticks = 12
-    image_snapshot_ticks = 12
+    network_snapshot_ticks = 4
+    image_snapshot_ticks = 4
 
     assert minibatch_size % (num_gpus * minibatch_gpu) == 0
     start_time = time.time()
